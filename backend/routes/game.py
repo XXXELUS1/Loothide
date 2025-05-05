@@ -1,9 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 import uuid
-
-from database import db
-from models import GameStart
+from backend.database import db
+from backend.models import GameStart
 
 router = APIRouter()
 
