@@ -1,141 +1,139 @@
 # backend/routes/game.py
 
+import os
+import uuid
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from datetime import datetime
-import uuid, math
-
-from backend.database import db
-from backend.models import GameStart, GameAction
+from backend.utils.crash import crash_point
+from backend.database import db   # motor client
+from typing import Optional
 
 router = APIRouter()
 
-FEE_PERCENT = 0.10     # комиссия тайника 10%
-MIN_HIDE_PCT = 0.30    # минимум 30% от текущей суммы
-MAX_HIDES = 2          # максимум спряток
+SERVER_SEED = os.getenv("SERVER_SEED")
+HOUSE_EDGE  = float(os.getenv("HOUSE_EDGE", 0.10))
 
-@router.post("/start")
-async def start_game(game: GameStart):
-    user = await db.users.find_one({"user_id": game.user_id})
-    if not user or user.get("balance", 0) < game.stake:
-        raise HTTPException(400, "Недостаточно средств или пользователь не найден")
-    await db.users.update_one(
-        {"user_id": game.user_id},
-        {"$inc": {"balance": -game.stake}}
-    )
-    game_id = str(uuid.uuid4())
+
+class StartReq(BaseModel):
+    user_id: int
+    stake: float
+
+class StartResp(BaseModel):
+    game_id: str
+    crash_point: float
+
+class StatusResp(BaseModel):
+    game_id: str
+    status: str              # active/won/crashed
+    crash_point: float
+    current_amount: float
+    hidden_amount: float
+
+class ActionReq(BaseModel):
+    game_id: str
+    amount: Optional[float]  # для hide
+
+class HideResp(BaseModel):
+    hidden: float
+    fee: float
+
+class CashoutResp(BaseModel):
+    payout: float
+
+
+@router.post("/start", response_model=StartResp)
+async def game_start(req: StartReq):
+    # проверяем, есть ли пользователь
+    user = await db.users.find_one({"user_id": req.user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if user["balance"] < req.stake:
+        raise HTTPException(400, "Insufficient balance")
+
+    # создаём game_id
+    game_id = uuid.uuid4().hex
+    # генерируем crash_point
+    crash = crash_point(SERVER_SEED, str(req.user_id), game_id, HOUSE_EDGE)
+
+    # сохраняем раунд
     await db.games.insert_one({
-        "game_id":        game_id,
-        "user_id":        game.user_id,
-        "stake":          game.stake,
-        "multiplier":     1.0,
-        "current_amount": game.stake,
+        "_id":            game_id,
+        "user_id":        req.user_id,
+        "stake":          req.stake,
+        "crash_point":    crash,
+        "current_amount": req.stake,
         "hidden_amount":  0.0,
-        "risk_level":     0.0,
-        "hides_used":     0,
-        "started_at":     datetime.utcnow(),
-        "ended_at":       None,
-        "status":         "active"
+        "status":         "active",
+        "created_at":     datetime.utcnow(),
     })
-    return {"game_id": game_id}
 
-
-@router.get("/status/{game_id}")
-async def game_status(game_id: str):
-    game = await db.games.find_one({"game_id": game_id})
-    if not game:
-        raise HTTPException(404, "Игра не найдена")
-    if game["status"] != "active":
-        return {
-            "game_id":       game_id,
-            "multiplier":    game["multiplier"],
-            "current_amount": game["current_amount"],
-            "hidden_amount": game["hidden_amount"],
-            "risk_level":    game["risk_level"],
-            "status":        game["status"]
-        }
-
-    # вычисляем прошедшее время
-    elapsed = (datetime.utcnow() - game["started_at"]).seconds
-    # простой рост множителя +2% в секунду
-    multiplier = 1 + 0.02 * elapsed
-    current = game["stake"] * multiplier
-    # риск: старт 2% + 3% за каждую секунду после 1-й
-    risk = max(0, min(100, 2 + 3 * max(0, elapsed - 1)))
-
-    # сохраняем в БД
-    await db.games.update_one(
-        {"game_id": game_id},
-        {"$set": {
-            "multiplier":     multiplier,
-            "current_amount": current,
-            "risk_level":     risk
-        }}
-    )
-
-    return {
-        "game_id":        game_id,
-        "multiplier":     round(multiplier, 4),
-        "current_amount": round(current, 2),
-        "hidden_amount":  round(game["hidden_amount"], 2),
-        "risk_level":     round(risk, 1),
-        "status":         game["status"]
-    }
-
-
-@router.post("/hide")
-async def hide_amount(action: GameAction):
-    game = await db.games.find_one({"game_id": action.game_id, "status": "active"})
-    if not game:
-        raise HTTPException(404, "Игра не найдена или уже завершена")
-    if game["hides_used"] >= MAX_HIDES:
-        raise HTTPException(400, "Достигнуто максимальное число спряток")
-    if action.amount is None:
-        raise HTTPException(400, "Не указана сумма спрятки")
-
-    curr = game["current_amount"]
-    min_allowed = math.ceil(curr * MIN_HIDE_PCT)
-    max_allowed = curr / 2
-    if action.amount < min_allowed or action.amount > max_allowed:
-        raise HTTPException(
-            400,
-            f"Спрятать можно от {min_allowed} до {int(max_allowed)} коинов"
-        )
-
-    fee = action.amount * FEE_PERCENT
-    net = action.amount - fee
-
-    # обновляем игру
-    await db.games.update_one(
-        {"game_id": action.game_id},
-        {"$inc": {
-            "hidden_amount":  net,
-            "current_amount": -action.amount,
-            "hides_used":     1
-        }}
-    )
-    return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "hidden": round(net, 2),
-        "fee":    round(fee, 2),
-        "hides_used": game["hides_used"] + 1
-    }
-
-
-@router.post("/cashout")
-async def cashout_game(action: GameAction):
-    game = await db.games.find_one({"game_id": action.game_id, "status": "active"})
-    if not game:
-        raise HTTPException(404, "Игра не найдена или уже завершена")
-
-    total = game["current_amount"] + game["hidden_amount"]
-    # отдаём игроку
+    # списываем ставку с баланса пользователя
     await db.users.update_one(
-        {"user_id": game["user_id"]},
-        {"$inc": {"balance": total}}
+        {"user_id": req.user_id},
+        {"$inc": {"balance": -req.stake}}
     )
-    # завершаем сессию
+
+    return StartResp(game_id=game_id, crash_point=crash)
+
+
+@router.get("/status/{game_id}", response_model=StatusResp)
+async def game_status(game_id: str):
+    g = await db.games.find_one({"_id": game_id})
+    if not g:
+        raise HTTPException(404, "Game not found")
+    return StatusResp(
+        game_id=game_id,
+        status=g["status"],
+        crash_point=g["crash_point"],
+        current_amount=g["current_amount"],
+        hidden_amount=g["hidden_amount"]
+    )
+
+
+@router.post("/hide", response_model=HideResp)
+async def game_hide(req: ActionReq):
+    g = await db.games.find_one({"_id": req.game_id})
+    if not g or g["status"] != "active":
+        raise HTTPException(400, "Invalid game")
+
+    amount = req.amount or 0.0
+    fee = amount * HOUSE_EDGE
+    hidden = amount - fee
+
+    # обновляем внутреннее состояние раунда
     await db.games.update_one(
-        {"game_id": action.game_id},
-        {"$set": {"status": "won", "ended_at": datetime.utcnow()}}
+        {"_id": req.game_id},
+        {
+            "$inc": {
+                "current_amount": -amount,
+                "hidden_amount":  hidden
+            }
+        }
     )
-    return {"game_id": action.game_id, "payout": round(total, 2)}
+    return HideResp(hidden=hidden, fee=fee)
+
+
+@router.post("/cashout", response_model=CashoutResp)
+async def game_cashout(req: ActionReq):
+    g = await db.games.find_one({"_id": req.game_id})
+    if not g or g["status"] != "active":
+        raise HTTPException(400, "Invalid game")
+
+    # итоговая выплата
+    payout = g["current_amount"] + g["hidden_amount"]
+
+    # отмечаем раунд как завершённый
+    await db.games.update_one(
+        {"_id": req.game_id},
+        {"$set": {"status": "won"}}
+    )
+
+    # начисляем payout на баланс пользователя
+    await db.users.update_one(
+        {"user_id": g["user_id"]},
+        {"$inc": {"balance": payout}}
+    )
+
+    return CashoutResp(payout=payout)
