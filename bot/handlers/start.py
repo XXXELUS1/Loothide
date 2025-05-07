@@ -1,26 +1,21 @@
-# bot/handlers/start.py
-
-import aiohttp
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import API_BASE
+import httpx
+from config import TELEGRAM_TOKEN, BACKEND_URL, WEBAPP_URL
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = user.id
-    # берём либо username, либо first_name
-    username = user.username or user.first_name or f"user{user_id}"
-
-    # пробуем создать пользователя
-    async with aiohttp.ClientSession() as sess:
-        resp = await sess.post(
-            f"{API_BASE}/user/create/{user_id}",
+    user_id   = update.effective_user.id
+    username  = update.effective_user.username or ""
+    # Регистрируем пользователя, если нет
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"{BACKEND_URL}/user/create/{user_id}",
             params={"username": username}
         )
-        # 400 — значит уже есть, игнорируем
-    await update.message.reply_text(
-        "👋 Добро пожаловать в LootHide!\n"
+    text = (
+        "👋 Добро пожаловать в LootHide!\n\n"
         "Доступные команды:\n"
         "/balance — проверить баланс\n"
-        "/play    — начать игру"
+        "/play — начать игру"
     )
+    await update.message.reply_text(text)

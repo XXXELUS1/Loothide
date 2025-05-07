@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-API_BASE       = os.getenv("API_BASE", "https://3b93-185-138-100-40.ngrok-free.app")
-
-if not TELEGRAM_TOKEN:
-    raise RuntimeError("TELEGRAM_TOKEN не задан в .env")
+BACKEND_URL    = os.getenv("BACKEND_URL")
+WEBAPP_URL     = os.getenv("WEBAPP_URL")
+if not TELEGRAM_TOKEN or not BACKEND_URL or not WEBAPP_URL:
+    raise RuntimeError("TELEGRAM_TOKEN и API_BASE должны быть заданы в .env")
