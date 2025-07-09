@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  <title>Obsidia Crash</title>
+
+  <!-- TailwindCSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Telegram WebApp SDK (добавляем async) -->
+  <script async src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Конфиг с BACKEND_URL -->
+  <script src="./config.js"></script>
+
+  <style>
+    @layer utilities {
+      .aspect-3\/2 {
+        aspect-ratio: 3 / 2;
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-black text-white min-h-screen flex flex-col items-center p-4 font-sans">
+  <!-- Header -->
+  <div class="w-full max-w-2xl flex justify-between items-center mb-6">
+    <div class="text-4xl font-black tracking-widest">OBSIDIA</div>
+    <div class="text-right text-sm">
+      <div id="user-name" class="text-white/80">Guest</div>
+      <div id="user-balance" class="text-white/50">0.00 Ƀ</div>
+    </div>
+  </div>
+
+  <!-- Graph -->
+  <div class="relative w-full max-w-2xl bg-[#0b0b15] rounded-2xl overflow-hidden mb-6 aspect-3/2 shadow-xl">
+    <div class="absolute inset-0 z-0 bg-[radial-gradient(circle_at_30%_40%,rgba(168,85,247,0.1),transparent),radial-gradient(circle_at_70%_60%,rgba(236,72,153,0.1),transparent)]"></div>
+    <canvas id="crashCanvas" width="600" height="400" class="absolute inset-0 w-full h-full z-0"></canvas>
+    <div id="multiplier"
+         class="absolute inset-0 flex items-center justify-center text-6xl font-black z-10 text-purple-400">
+      1.00×
+    </div>
+  </div>
+
+  <!-- Quick buttons -->
+  <div class="w-full max-w-2xl flex flex-wrap gap-2 justify-center mb-4">
+    <button data-val="1"  class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">1 Ƀ</button>
+    <button data-val="5"  class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">5 Ƀ</button>
+    <button data-val="10" class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">10 Ƀ</button>
+    <button data-val="20" class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">20 Ƀ</button>
+    <button data-val="50" class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">50 Ƀ</button>
+    <button data-val="100"class="quick-bet px-4 py-2 bg-white/10 hover:bg-white/20 rounded text-white">100 Ƀ</button>
+  </div>
+
+  <!-- Controls -->
+  <div class="w-full max-w-2xl grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="col-span-2 bg-white/5 p-4 rounded-xl">
+      <label class="block mb-1 text-white/70">Bet Amount</label>
+      <input id="stake"
+             type="number" min="0"
+             placeholder="Enter amount"
+             class="w-full p-2 rounded bg-white/10 text-white placeholder-white/30 focus:outline-none" />
+    </div>
+    <div class="flex flex-col gap-2">
+      <button id="start-btn"
+              class="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-bold">
+        Place Bet
+      </button>
+      <button id="cashout-btn"
+              disabled
+              class="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl text-white font-bold opacity-50 cursor-not-allowed">
+        Cashout
+      </button>
+    </div>
+  </div>
+
+  <div class="text-xs text-white/30 text-center mt-auto">Obsidia: Breakline</div>
+
+  <!-- Main logic -->
+  <script src="./app.js"></script>
+</body>
+</html>

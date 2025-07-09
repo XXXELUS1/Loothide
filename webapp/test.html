@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Obsidia Crash</title>
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @layer utilities {
+      .aspect-3\/2 { aspect-ratio: 3 / 2; }
+    }
+  </style>
+</head>
+<body class="bg-black text-white">
+
+  <!-- Root для React -->
+  <div id="root" class="min-h-screen px-4 py-6 font-sans"></div>
+
+  <!-- React + ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel для in-browser JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Конфигурация API -->
+  <script>
+    window.CONFIG = {
+      BACKEND_URL: "https://4fea3c33a784.ngrok-free.app",
+      WEBAPP_URL:  "https://4fea3c33a784.ngrok-free.app/webapp"
+    };
+  </script>
+
+  <!-- Основной JSX-код приложения -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function ObsidiaCrashGame() {
+      // Telegram WebApp
+      const tg = window.Telegram?.WebApp;
+      if (tg) tg.expand();
+
+      // User info
+      const user = tg?.initDataUnsafe?.user || {};
+      const userId   = user.id;
+      const userName = user.first_name || user.username || 'Гость';
+
+      // State
+      const [balance, setBalance]       = useState(0);
+      const [stake, setStake]           = useState(1);
+      const [canPlace, setCanPlace]     = useState(true);
+      const [canCashout, setCanCashout] = useState(false);
+      const [multiplier, setMultiplier] = useState('—');
+      const [crashed, setCrashed]       = useState(false);
+
+      // Canvas
+      const canvasRef = useRef(null);
+      const WIDTH  = 600, HEIGHT = 400, DURATION = 10000;
+
+      // Load balance on mount
+      useEffect(() => {
+        (async () => {
+          try {
+            const res = await fetch(`${window.CONFIG.BACKEND_URL}/user/balance/${userId}`);
+            const { balance } = await res.json();
+            setBalance(balance);
+          } catch {}
+        })();
+      }, []);
+
+      // Canvas drawing + WebSocket logic
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let startTime, animId, scale=1, offsetX=0;
+        const points = [];
+
+        // Prepare gradient
+        const gradient = ctx.createLinearGradient(0,0,WIDTH,0);
+        gradient.addColorStop(0,'#a855f7');
+        gradient.addColorStop(1,'#ec4899');
+
+        // Draw axes
+        function drawAxes() {
+          ctx.save();
+          ctx.setTransform(1,0,0,1,0,0);
+          ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+          ctx.lineWidth   = 1;
+          ctx.font        = '12px sans-serif';
+          ctx.fillStyle   = 'rgba(255,255,255,0.7)';
+
+          // X axis
+          ctx.beginPath(); ctx.moveTo(0,HEIGHT); ctx.lineTo(WIDTH,HEIGHT); ctx.stroke();
+          for (let x=0; x<=WIDTH; x+=100) {
+            ctx.beginPath(); ctx.moveTo(x,HEIGHT); ctx.lineTo(x,HEIGHT+6); ctx.stroke();
+            ctx.fillText((x/WIDTH*10).toFixed(0), x-6, HEIGHT+20);
+          }
+          // Y axis
+          ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,HEIGHT); ctx.stroke();
+          for (let y=0; y<=HEIGHT; y+=80) {
+            ctx.beginPath(); ctx.moveTo(0,HEIGHT-y); ctx.lineTo(-6,HEIGHT-y); ctx.stroke();
+            ctx.fillText((y/HEIGHT*5).toFixed(1), -30, HEIGHT-y+4);
+          }
+          ctx.restore();
+        }
+
+        // Animation loop
+        function tick(time) {
+          if (!startTime) startTime = time;
+          const t = Math.min((time-startTime)/DURATION, 1);
+
+          // Parabola
+          const x = t*WIDTH, y = t*t*HEIGHT;
+          points.push({x,y});
+
+          // Zoom out at 90%
+          if (t > 0.9) {
+            scale   = Math.min(5, scale*1.005);
+            offsetX += WIDTH*0.002;
+          }
+
+          // Clear & draw
+          ctx.clearRect(0,0,WIDTH,HEIGHT);
+          drawAxes();
+          ctx.save();
+          ctx.translate(0,HEIGHT);
+          ctx.scale(1/scale, -1/scale);
+          ctx.translate(-offsetX,0);
+          ctx.beginPath();
+          ctx.strokeStyle  = gradient;
+          ctx.lineWidth    = 3;
+          ctx.shadowColor  = '#a855f7';
+          ctx.shadowBlur   = 8;
+          points.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+          ctx.stroke();
+          ctx.restore();
+
+          setMultiplier((1 + t*4).toFixed(2));
+          if (t < 1) animId = requestAnimationFrame(tick);
+          else setCrashed(true);
+        }
+
+        // Start animation after pressing Place Bet
+        if (canPlace === false) {
+          animId = requestAnimationFrame(tick);
+        }
+
+        return () => cancelAnimationFrame(animId);
+      }, [canPlace]);
+
+      // Start & Cashout handlers
+      let ws;
+      async function startGame() {
+        setCanPlace(false);
+        setCanCashout(false);
+        setCrashed(false);
+
+        const res = await fetch(`${window.CONFIG.BACKEND_URL}/game/start`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: userId, stake })
+        });
+        const { game_id, crash_point } = await res.json();
+
+        // Open WS
+        ws = new WebSocket(
+          `${location.protocol==='https:'?'wss':'ws'}://${location.host}` +
+          `/crash/ws/${game_id}/${crash_point}`
+        );
+        ws.onopen = () => setCanCashout(true);
+        ws.onmessage = e => {
+          const msg = JSON.parse(e.data);
+          const t = Math.min(msg.multiplier / crash_point, 1);
+          // тики будут идти из useEffect
+
+          if (msg.status === 'cashed_out' || msg.status === 'crash') {
+            ws.close();
+            setCanCashout(false);
+            setCanPlace(true);
+            // 更新баланс
+            fetch(`${window.CONFIG.BACKEND_URL}/user/balance/${userId}`)
+              .then(r=>r.json()).then(j=>setBalance(j.balance));
+          }
+        };
+      }
+
+      function cashout() {
+        if (ws && ws.readyState===WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action:'cashout' }));
+          setCanCashout(false);
+        }
+      }
+
+      return (
+        <div>
+          {/* Header */}
+          <div className="flex justify-between items-center mb-6">
+            <div className="text-4xl font-black">OBSIDIA</div>
+            <div className="text-right text-sm">
+              <div className="text-white/80">{userName}</div>
+              <div className="text-white/50">{balance.toFixed(2)} Ƀ</div>
+            </div>
+          </div>
+
+          {/* Canvas */}
+          <div className="relative mx-auto w-full max-w-4xl aspect-3/2 bg-black rounded-2xl shadow-xl overflow-hidden mb-6">
+            <canvas ref={canvasRef} width={WIDTH} height={HEIGHT}
+              className="absolute inset-0 w-full h-full" />
+            <div className={`absolute inset-0 flex items-center justify-center text-6xl font-black ${
+                crashed ? 'text-red-500 animate-pulse' : 'text-purple-400'
+            }`}>
+              {crashed ? 'CRASHED' : multiplier + '×'}
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="flex justify-center gap-2 mb-4">
+            {[1,5,10,20,50,100].map(v => (
+              <button key={v}
+                onClick={()=>setStake(v)}
+                className={`px-4 py-2 rounded text-white ${
+                  stake===v ? 'bg-purple-700' : 'bg-white/10 hover:bg-white/20'
+                }`}
+              >{v} Ƀ</button>
+            ))}
+          </div>
+          <div className="flex justify-center gap-4 mb-6">
+            <input type="number" value={stake} onChange={e=>setStake(+e.target.value)}
+              className="w-32 p-2 rounded bg-white/10 text-white" />
+            <button disabled={!canPlace} onClick={startGame}
+              className="px-6 py-2 bg-purple-600 rounded text-white">
+              Place Bet
+            </button>
+            <button disabled={!canCashout} onClick={cashout}
+              className="px-6 py-2 bg-pink-600 rounded text-white">
+              Cashout
+            </button>
+          </div>
+
+          <div className="mt-12 text-center text-white/30 text-xs">Obsidia: Breakline</div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root'))
+      .render(<ObsidiaCrashGame />);
+  </script>
+</body>
+</html>

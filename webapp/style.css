@@ -1,0 +1,53 @@
+/* webapp/style.css */
+/* очень упрощённый вариант */
+body {
+  margin:0; padding:0;
+  background:#0b0b15;
+  color:#fff;
+  font-family:sans-serif;
+}
+.header {
+  display:flex; justify-content:space-between;
+  padding:16px;
+}
+.logo {
+  font-size:1.5rem; letter-spacing:0.2em;
+}
+.user-info { text-align:right; }
+.canvas-container {
+  position:relative;
+  margin:0 auto;
+  width:600px; height:400px;
+  background:radial-gradient(circle at 30% 40%,rgba(168,85,247,0.1),transparent),
+             radial-gradient(circle at 70% 60%,rgba(236,72,153,0.1),transparent);
+  border-radius:12px;
+  overflow:hidden;
+}
+canvas { display:block; background:#000; }
+.multiplier {
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:3rem; font-weight:bold;
+  pointer-events:none;
+}
+.quick-bets {
+  display:flex; justify-content:center; gap:8px; margin:16px;
+}
+.quick-bets button {
+  background:#222; color:#fff; border:none; padding:8px 12px;
+  cursor:pointer; border-radius:4px;
+}
+.controls {
+  display:flex; justify-content:center; align-items:center; gap:8px;
+  margin-bottom:24px;
+}
+.controls input {
+  width:100px; padding:8px; border-radius:4px; border:none;
+  background:#222; color:#fff;
+}
+.controls button {
+  padding:8px 16px; border:none; border-radius:4px;
+  cursor:pointer; color:#fff;
+}
+#start-btn { background:#7c3aed; }
+#cashout-btn { background:#ec4899; }
